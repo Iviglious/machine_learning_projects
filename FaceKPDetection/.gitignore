@@ -1,3 +1,7 @@
 dataset/
 .DS_Store
 result/
+*.html
+.Rhistory
+*.pdf
+main_*
