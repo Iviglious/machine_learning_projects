@@ -3,8 +3,8 @@ title: "Face Key point detection"
 author: "Yuan-Yi Chang"
 date: "06/12/2016"
 output:
-  html_document: default
-  pdf_document: default
+html_document: default
+pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -43,7 +43,7 @@ ptm[[1]] <- proc.time()['elapsed']
 ## Histogram Equalization
 ```{r histogram_equalization}
 im.train.he <- foreach(i = 1 : nrow(im.train), .combine = rbind) %do% {
-  as.vector(histeq(im.train[i, ]))
+	as.vector(histeq(im.train[i, ]))
 }
 im.train <- im.train.he
 ```
@@ -72,7 +72,7 @@ ptm[[3]] <- proc.time()['elapsed']
 
 ```{r plot, warning=FALSE}
 for(i in seq(1, ncol(d.train), by = 2)){
-		print(ggplot(data.frame(x=96-d.train[, i], y=96-d.train[, i+1]), aes(x=x, y=y)) + geom_point(shape=1))
+	print(ggplot(data.frame(x=96-d.train[, i], y=96-d.train[, i+1]), aes(x=x, y=y)) + geom_point(shape=1))
 }
 ```
 
@@ -86,14 +86,14 @@ ptm[[4]] <- proc.time()['elapsed']
 KMEANS_K <- 2
 PATCH_SIZE <- 10
 for(i in seq(1, ncol(d.train), by = 2)){
-#for(i in 1){
-  d.train.sub <- d.train[, c(i,i+1)]
-  d.train.sub.nna <- d.train.sub[!is.na(d.train.sub[, 1]), ]
-  im.train.sub.nna <- im.train[!is.na(d.train.sub[, 1]), ]
-  d.train.sub.nna.clusters<- kmeans(d.train.sub.nna, KMEANS_K)
-	  #patches.cluster <- fanny(patches.nna, KMEANS_K)
+	#for(i in 1){
+	d.train.sub <- d.train[, c(i,i+1)]
+	d.train.sub.nna <- d.train.sub[!is.na(d.train.sub[, 1]), ]
+	im.train.sub.nna <- im.train[!is.na(d.train.sub[, 1]), ]
+	d.train.sub.nna.clusters<- kmeans(d.train.sub.nna, KMEANS_K)
+	#patches.cluster <- fanny(patches.nna, KMEANS_K)
 	d.train.sub.nna[3] <- as.factor(d.train.sub.nna.clusters$cluster)
-	  colnames(d.train.sub.nna) <- c('x', 'y', 'cluster')
+	colnames(d.train.sub.nna) <- c('x', 'y', 'cluster')
 	print(ggplot(d.train.sub.nna, aes(x=96-x, y=96-y, color=cluster)) + geom_point(shape=1))
 	
 	for (j in 1:KMEANS_K){
@@ -131,35 +131,35 @@ ptm[[5]] <- proc.time()['elapsed']
 KMEANS_K <- 6
 PATCH_SIZE <- 10
 for(i in seq(1, ncol(d.train), by = 2)){
-#for(i in 1){
-	  im.train.patches <- foreach (k = 1:nrow(d.train), .combine=rbind) %do% {
-	    im  <- matrix(data = im.train[k,], nrow=96, ncol=96)
-	    x   <- d.train[k, i]
-	    y   <- d.train[k, i+1]
-	    x1  <- (x-PATCH_SIZE)
-	    x2  <- (x+PATCH_SIZE)
-	    y1  <- (y-PATCH_SIZE)
-	    y2  <- (y+PATCH_SIZE)
-	    if ( (!is.na(x)) && (!is.na(y)) && (x1>=1) && (x2<=96) && (y1>=1) && (y2<=96) ){
-	      as.vector(im[x1:x2, y1:y2])
-	    }
-	    else{
-	      NA
-	    }
-	  }
-	  im.train.patches <- data.frame(im.train.patches)
-	  im.train.patches.nna <- im.train.patches[!is.na(im.train.patches[, 1]), ]
-	  im.train.patches.nna.clusters <- kmeans(im.train.patches.nna, KMEANS_K)
-	  
-	  d.train.patches.nna <- d.train[!is.na(im.train.patches[, 1]), c(i,i+1)]
-	  d.train.patches.nna[3] <- as.factor(im.train.patches.nna.clusters$cluster)
-	  colnames(d.train.patches.nna) <- c('x', 'y', 'cluster')
-	  
-	  print(ggplot(d.train.patches.nna, aes(x=96-x, y=96-y, color=cluster)) + geom_point(shape=1))
-
-	  for (j in 1:KMEANS_K){
-	    image(1:(2 * PATCH_SIZE + 1), 1:(2 * PATCH_SIZE + 1), matrix(data = rev(colMeans(im.train.patches.nna[im.train.patches.nna.clusters$cluster == j, ])), nrow = 2 * PATCH_SIZE + 1, ncol = 2 * PATCH_SIZE + 1), col = gray(0:255/255)) 
-	 }
+	#for(i in 1){
+	im.train.patches <- foreach (k = 1:nrow(d.train), .combine=rbind) %do% {
+		im  <- matrix(data = im.train[k,], nrow=96, ncol=96)
+		x   <- d.train[k, i]
+		y   <- d.train[k, i+1]
+		x1  <- (x-PATCH_SIZE)
+		x2  <- (x+PATCH_SIZE)
+		y1  <- (y-PATCH_SIZE)
+		y2  <- (y+PATCH_SIZE)
+		if ( (!is.na(x)) && (!is.na(y)) && (x1>=1) && (x2<=96) && (y1>=1) && (y2<=96) ){
+			as.vector(im[x1:x2, y1:y2])
+		}
+		else{
+			NA
+		}
+	}
+	im.train.patches <- data.frame(im.train.patches)
+	im.train.patches.nna <- im.train.patches[!is.na(im.train.patches[, 1]), ]
+	im.train.patches.nna.clusters <- kmeans(im.train.patches.nna, KMEANS_K)
+	
+	d.train.patches.nna <- d.train[!is.na(im.train.patches[, 1]), c(i,i+1)]
+	d.train.patches.nna[3] <- as.factor(im.train.patches.nna.clusters$cluster)
+	colnames(d.train.patches.nna) <- c('x', 'y', 'cluster')
+	
+	print(ggplot(d.train.patches.nna, aes(x=96-x, y=96-y, color=cluster)) + geom_point(shape=1))
+	
+	for (j in 1:KMEANS_K){
+		image(1:(2 * PATCH_SIZE + 1), 1:(2 * PATCH_SIZE + 1), matrix(data = rev(colMeans(im.train.patches.nna[im.train.patches.nna.clusters$cluster == j, ])), nrow = 2 * PATCH_SIZE + 1, ncol = 2 * PATCH_SIZE + 1), col = gray(0:255/255)) 
+	}
 }
 ```
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
@@ -171,12 +171,12 @@ ptm[[6]] <- proc.time()['elapsed']
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
 c_time <- foreach(i = 1 : length(ptm), .combine = rbind) %do% {
-  if (i == 1){
-    as.numeric(0)
-  }
-  else{
-    as.vector(ptm[[i]] - ptm[[i-1]])  
-  }
+	if (i == 1){
+		as.numeric(0)
+	}
+	else{
+		as.vector(ptm[[i]] - ptm[[i-1]])  
+	}
 }
 c_time
 ```
