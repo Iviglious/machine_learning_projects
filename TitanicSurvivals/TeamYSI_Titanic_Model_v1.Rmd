@@ -1,0 +1,29 @@
+---
+title: "Team YSI - Titanic Prediction of Survivals"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+Version 1: Initial check - Recursive partitioning using selected features
+
+```{r}
+library(rpart)
+
+trainData <- read.csv("input/train.csv", header = TRUE)
+testData <- read.csv("input/test.csv", header = TRUE)
+
+head(trainData)
+
+fit <- rpart(Survived~Pclass + Sex + Age + SibSp + Parch + Fare + Embarked, data=trainData, method = "class")
+
+Prediction <- predict(fit, testData, type = "class")
+
+submit <- data.frame(PassengerId = testData$PassengerId, Survived = Prediction)
+
+write.csv(submit, file = "output/ysi_titanic_prediction_v1.csv", row.names = FALSE)
+
+
+```
+
