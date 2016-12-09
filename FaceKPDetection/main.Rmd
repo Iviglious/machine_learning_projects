@@ -1,10 +1,10 @@
 ---
 title: "Face Key point detection"
 author: "Yuan-Yi Chang"
-date: "06/12/2016"
+date: "09/12/2016"
 output:
-html_document: default
-pdf_document: default
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -18,124 +18,164 @@ install.packages('MASS')
 install.packages('ggplot2')
 install.packages('foreach')
 install.packages('IM')
+install.packages('reshape2')
+install.packages('tictoc')
 ```
 
 
-```{r libraby, message=FALSE, warning=FALSE, include=FALSE}
+```{r library, message=FALSE, warning=FALSE, include=FALSE}
 library('MASS')
 library('ggplot2')
 library('foreach')
 library('IM')
+library('reshape2')
+library('tictoc')
+```
+
+```{r, load data,include=FALSE}
+load('dataset/dataset_histeq.Rd')
 ```
 
 ## Load Data
 
-```{r load, message=FALSE, warning=FALSE}
-load("dataset/data.Rd")
-attach(FK)
+The dataset include two parts:
+
+1. TARGET: A 7049 x 30 matrix, the key point data for each samples.
+2. IM: A 7049 * 9216 matirx, the training image which height and width is 96 x 96.
+
+* Training set: 7049 samepls
+* Test set: 1783 samples
+```{r read, message=FALSE, warning=FALSE, eval=FALSE}
+tic()
+TARGET.TRAIN    <- read.csv('dataset/training.csv', stringsAsFactors=F)
+TARGET.TEST    <- read.csv('dataset/test.csv', stringsAsFactors=F)
+IM.TRAIN   <- foreach(im = TARGET.TRAIN$Image, .combine=rbind) %dopar% { as.integer(unlist(strsplit(im, " "))) }
+IM.TEST    <- foreach(im = TARGET.TEST$Image, .combine=rbind) %dopar% { as.integer(unlist(strsplit(im, " "))) }
+TARGET.TRAIN$Image <- NULL
+TARGET.TEST$Image <- NULL
+dim(TARGET.TEST)
+dim(TARGET.TRAIN)
+toc()
 ```
 
-```{r, message=FALSE, warning=FALSE, include=FALSE}
-ptm <- list()
-ptm[[1]] <- proc.time()['elapsed']
+## Split Data
+In order to make our prediction more rebust, we could split the training data into training set and validation set.
+```{r split data}
+IDX <- sample(nrow(TARGET.TRAIN), nrow(TARGET.TRAIN) * 0.7)
+x.train <- IM.TRAIN.histequal[IDX, ]
+x.test <- IM.TRAIN[-IDX, ]
+y.train <- TARGET.TRAIN[IDX, ]
+y.p <- TARGET.TRAIN[-IDX, ]
 ```
+
 
 ## Histogram Equalization
-```{r histogram_equalization}
-im.train.he <- foreach(i = 1 : nrow(im.train), .combine = rbind) %do% {
-	as.vector(histeq(im.train[i, ]))
-}
-im.train <- im.train.he
-```
 
-```{r, message=FALSE, warning=FALSE, include=FALSE}
-ptm[[2]] <- proc.time()['elapsed']
+Histogram equalization increase the contrast of the images such that the difference among each pixel would be more clearly.
+
+```{r histogram equalization, eval=FALSE, include=FALSE}
+tic()
+IM.TRAIN.histequal <- foreach(i=1:nrow(IM.TRAIN), .combine = rbind) %dopar% {
+	as.vector(histeq(IM.TRAIN[i, ]))
+}
+toc()
+```
+```{r, include=FALSE}
+image(1:96, 1:96, matrix(data=rev(IM.TRAIN[60, ]), nrow=96, ncol=96), col=gray(0:255/255))
+image(1:96, 1:96, matrix(data=rev(IM.TRAIN.histequal[60, ]), nrow=96, ncol=96), col=gray(0:255/255))
+```
+```{r, eval=FALSE, include=FALSE}
+tic()
+IM.TEST.histequal <- foreach(i=1:nrow(IM.TEST), .combine = rbind) %dopar% {
+	as.vector(histeq(IM.TEST[i, ]))
+}
+toc()
+```
+```{r, include=FALSE}
+image(1:96, 1:96, matrix(data=rev(IM.TEST[60, ]), nrow=96, ncol=96), col=gray(0:255/255))
+image(1:96, 1:96, matrix(data=rev(IM.TEST.histequal[60, ]), nrow=96, ncol=96), col=gray(0:255/255))
 ```
 
 ## Analysis
 
-### Check distribution
+Before we start to use data mining technique to predict the key point, we could observe the distribution of the data to see if it fit any distribution in spatial domain or intensity domain.
 
-```{r distribution}
-for (i in 1:ncol(d.train)){
-	plot(density(d.train[!is.na(d.train[, i]), i]), main = paste0(colnames(d.train)[i]))
-	nor <- rnorm(length(d.train[!is.na(d.train[, i]), i]), mean = mean(d.train[!is.na(d.train[, i]), i]), sd = sd(d.train[!is.na(d.train[, i]), i]))
-	qqplot(nor, d.train[!is.na(d.train[, i]), i], xlab = "Normal distribution", ylab = paste0(colnames(d.train)[i]))
+### Distribution
+
+```{r distribution, warning=FALSE}
+for (i in 1:ncol(TARGET.TRAIN)){
+	plot(density(TARGET.TRAIN[!is.na(TARGET.TRAIN[, i]), i]), main = paste0(colnames(TARGET.TRAIN)[i]))
+	nor <- rnorm(length(TARGET.TRAIN[!is.na(TARGET.TRAIN[, i]), i]), mean = mean(TARGET.TRAIN[!is.na(TARGET.TRAIN[, i]), i]), sd = sd(TARGET.TRAIN[!is.na(TARGET.TRAIN[, i]), i]))
+	qqplot(nor, TARGET.TRAIN[!is.na(TARGET.TRAIN[, i]), i], xlab = "Normal distribution", ylab = paste0(colnames(TARGET.TRAIN)[i]))
 }
 ```
 
-```{r, message=FALSE, warning=FALSE, include=FALSE}
-ptm[[3]] <- proc.time()['elapsed']
-```
+According to qqplot, we could not assume that the data fit normal distribution, so that we could not filter data by samples.  
 
-### Plot every keypoint for each part.
+### Plot every key point(target) in the training data for each part.
 
 ```{r plot, warning=FALSE}
-for(i in seq(1, ncol(d.train), by = 2)){
-	print(ggplot(data.frame(x=96-d.train[, i], y=96-d.train[, i+1]), aes(x=x, y=y)) + geom_point(shape=1))
+for(i in seq(1, ncol(TARGET.TRAIN), by = 2)){
+	print(ggplot(data.frame(x=96-TARGET.TRAIN[, i], y=96-TARGET.TRAIN[, i+1]), aes(x=x, y=y)) + geom_point(shape=1))
 }
 ```
 
-```{r, message=FALSE, warning=FALSE, include=FALSE}
-ptm[[4]] <- proc.time()['elapsed']
-```
+By observing the key point among the dataset, we assume that given key points in spatial domain, the key points could be split into different cluster such that the averaged image patching from different clusters would be dramatically different. The following steps are the implementation of general version of image patching and clustered version of image patching.
 
-### Cluster by location
+### Averaged image patching 
 
-```{r cluster_by_loc}
-KMEANS_K <- 2
+```{r mean patches}
+
 PATCH_SIZE <- 10
-for(i in seq(1, ncol(d.train), by = 2)){
-	#for(i in 1){
-	d.train.sub <- d.train[, c(i,i+1)]
-	d.train.sub.nna <- d.train.sub[!is.na(d.train.sub[, 1]), ]
-	im.train.sub.nna <- im.train[!is.na(d.train.sub[, 1]), ]
-	d.train.sub.nna.clusters<- kmeans(d.train.sub.nna, KMEANS_K)
-	#patches.cluster <- fanny(patches.nna, KMEANS_K)
-	d.train.sub.nna[3] <- as.factor(d.train.sub.nna.clusters$cluster)
-	colnames(d.train.sub.nna) <- c('x', 'y', 'cluster')
-	print(ggplot(d.train.sub.nna, aes(x=96-x, y=96-y, color=cluster)) + geom_point(shape=1))
-	
-	for (j in 1:KMEANS_K){
-		patches <- foreach (k = 1:nrow(d.train.sub.nna), .combine=rbind) %do% {
-			if (d.train.sub.nna[k, 3] == j){
-				im  <- matrix(data = im.train.sub.nna[k,], nrow=96, ncol=96)
-				x   <- d.train[k, i]
-				y   <- d.train[k, i+1]
-				x1  <- (x-PATCH_SIZE)
-				x2  <- (x+PATCH_SIZE)
-				y1  <- (y-PATCH_SIZE)
-				y2  <- (y+PATCH_SIZE)
-				if ( (!is.na(x)) && (!is.na(y)) && (x1>=1) && (x2<=96) && (y1>=1) && (y2<=96) ){
-					as.vector(im[x1:x2, y1:y2])
-				}
-				else{
-					NULL
-				}
-			}
-			else{
-				NULL
-			}
+coordinate.names <- gsub("_x", "", names(y.train)[grep("_x", names(y.train))])
+
+tic()
+x.train.mean.patches <- foreach(i = 1:length(coordinate.names)) %do% {
+  print(paste0("Image patching for ", coordinate.names[i]))
+  coord_x <- paste(coordinate.names[i], "x", sep="_")
+	coord_y <- paste(coordinate.names[i], "y", sep="_")
+	patches <- foreach (j = 1:nrow(x.train), .combine = rbind) %do% {
+
+	  im  <- matrix(data = x.train[j,], nrow=96, ncol=96)
+		x   <- y.train[j, coord_x]
+		y   <- y.train[j, coord_y]
+		x1  <- (x-PATCH_SIZE)
+		x2  <- (x+PATCH_SIZE)
+		y1  <- (y-PATCH_SIZE)
+		y2  <- (y+PATCH_SIZE)
+		if ( (!is.na(x)) && (!is.na(y)) && (x1>=1) && (x2<=96) && (y1>=1) && (y2<=96) ){
+			as.vector(im[x1:x2, y1:y2])
 		}
-		image(1:(2 * PATCH_SIZE + 1), 1:(2 * PATCH_SIZE + 1), matrix(data = rev(colMeans(patches)), nrow = 2 * PATCH_SIZE + 1, ncol = 2 * PATCH_SIZE + 1), col = gray(0:255/255))
+		else{
+			NULL
+		}
+
 	}
-	
+  t <- colMeans(patches)
+	image(1:(2*PATCH_SIZE+1), 1:(2*PATCH_SIZE+1), matrix(data=rev(t), nrow=2*PATCH_SIZE+1, ncol=2*PATCH_SIZE+1), col=gray(0:255/255))
+	list(t)
 }
+toc()
+y.train.mean = colMeans(y.train, na.rm = T)
+
 ```
 
-```{r, message=FALSE, warning=FALSE, include=FALSE}
-ptm[[5]] <- proc.time()['elapsed']
-```
+### Averaged image patching with different cluster images
 
-```{r cluster_by_intensity}
-KMEANS_K <- 6
-PATCH_SIZE <- 10
-for(i in seq(1, ncol(d.train), by = 2)){
-	#for(i in 1){
-	im.train.patches <- foreach (k = 1:nrow(d.train), .combine=rbind) %do% {
-		im  <- matrix(data = im.train[k,], nrow=96, ncol=96)
-		x   <- d.train[k, i]
-		y   <- d.train[k, i+1]
+```{r mean patches after clustering}
+NUM_CLUSTER <- 10
+PATCH_SIZE <- 16
+coordinate.names <- gsub("_x", "", names(y.train)[grep("_x", names(y.train))])
+
+tic()
+x.train.patches <- foreach(i = 1:length(coordinate.names)) %do% {
+  coord_x <- paste(coordinate.names[i], "x", sep="_")
+	coord_y <- paste(coordinate.names[i], "y", sep="_")
+
+	patches <- foreach (j = 1:nrow(x.train), .combine = rbind) %do% {
+	  im  <- matrix(data = x.train[j,], nrow=96, ncol=96)
+		x   <- y.train[j, coord_x]
+		y   <- y.train[j, coord_y]
 		x1  <- (x-PATCH_SIZE)
 		x2  <- (x+PATCH_SIZE)
 		y1  <- (y-PATCH_SIZE)
@@ -147,36 +187,100 @@ for(i in seq(1, ncol(d.train), by = 2)){
 			NA
 		}
 	}
-	im.train.patches <- data.frame(im.train.patches)
-	im.train.patches.nna <- im.train.patches[!is.na(im.train.patches[, 1]), ]
-	im.train.patches.nna.clusters <- kmeans(im.train.patches.nna, KMEANS_K)
-	
-	d.train.patches.nna <- d.train[!is.na(im.train.patches[, 1]), c(i,i+1)]
-	d.train.patches.nna[3] <- as.factor(im.train.patches.nna.clusters$cluster)
-	colnames(d.train.patches.nna) <- c('x', 'y', 'cluster')
-	
-	print(ggplot(d.train.patches.nna, aes(x=96-x, y=96-y, color=cluster)) + geom_point(shape=1))
-	
-	for (j in 1:KMEANS_K){
-		image(1:(2 * PATCH_SIZE + 1), 1:(2 * PATCH_SIZE + 1), matrix(data = rev(colMeans(im.train.patches.nna[im.train.patches.nna.clusters$cluster == j, ])), nrow = 2 * PATCH_SIZE + 1, ncol = 2 * PATCH_SIZE + 1), col = gray(0:255/255)) 
-	}
+	data.frame(patches)
 }
-```
-```{r, message=FALSE, warning=FALSE, include=FALSE}
-ptm[[6]] <- proc.time()['elapsed']
-```
+toc()
+tic()
+x.train.mean.patches <- foreach(i = 1:length(coordinate.names)) %do% {
+  t1 <- x.train.patches[[i]][!is.na(x.train.patches[[i]][, 1]), ]
+  t2 <- y.train[!is.na(x.train.patches[[i]][, 1]), c(2*i-1,2*i)]
+  x.train.patches.clusters <- kmeans(t1, NUM_CLUSTER)
 
-
-## Calculation time
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
-
-c_time <- foreach(i = 1 : length(ptm), .combine = rbind) %do% {
-	if (i == 1){
-		as.numeric(0)
-	}
-	else{
-		as.vector(ptm[[i]] - ptm[[i-1]])  
-	}
+  t3 <- foreach(j = 1:NUM_CLUSTER) %do%{
+    t4 <- colMeans(t1[x.train.patches.clusters$cluster == j, ])
+    image(1:(2*PATCH_SIZE+1), 1:(2*PATCH_SIZE+1), matrix(data = rev(t4), nrow=2*PATCH_SIZE+1, ncol=2*PATCH_SIZE+1), col = gray(0:255/255))
+    t4
+  }
 }
-c_time
+toc()
+y.train.mean = colMeans(y.train, na.rm = T)
+
+```
+
+## Predict by mean patches
+
+```{r predict by mean patches, include=TRUE}
+SEARCH_SIZE <- 2
+PATCH_SIZE <- 16
+NUM_CLUSTER <- 10
+
+mean.patches.list <- x.train.mean.patches
+
+tic()
+y.test <- foreach(i = 1:length(coordinate.names), .combine=cbind) %do% {
+  print(paste0("predicting...", coordinate.names[i]))
+
+  coord_x <- paste(coordinate.names[i], "x", sep="_")
+	coord_y <- paste(coordinate.names[i], "y", sep="_")
+
+	r3 <- foreach(j = 1:nrow(x.test), .combine=rbind) %do% {
+  	x1 <- as.integer(y.train.mean[coord_x])-SEARCH_SIZE
+  	x2 <- as.integer(y.train.mean[coord_x])+SEARCH_SIZE
+  	y1 <- as.integer(y.train.mean[coord_y])-SEARCH_SIZE
+  	y2 <- as.integer(y.train.mean[coord_y])+SEARCH_SIZE
+
+  	x1 <- ifelse(x1-PATCH_SIZE<1,  PATCH_SIZE+1,  x1)
+  	y1 <- ifelse(y1-PATCH_SIZE<1,  PATCH_SIZE+1,  y1)
+  	x2 <- ifelse(x2+PATCH_SIZE>96, 96-PATCH_SIZE, x2)
+  	y2 <- ifelse(y2+PATCH_SIZE>96, 96-PATCH_SIZE, y2)
+    im <- matrix(data = x.test[j,], nrow=96, ncol=96)
+
+    params <- expand.grid(x = x1:x2, y = y1:y2)
+
+    max.score <- -1
+    max.x <- -1
+    max.y <- -1
+
+    for(k in 1:nrow(params)){
+      x <- params$x[k]
+      y <- params$y[k]
+      p <- im[(x-PATCH_SIZE):(x+PATCH_SIZE), (y-PATCH_SIZE):(y+PATCH_SIZE)]
+      for(l in 1:NUM_CLUSTER){
+        t <- cor(as.vector(p), as.vector(mean.patches.list[[i]][[l]]))
+        t <- ifelse(is.na(t), 0, t)
+        if(t > max.score){
+          max.x = x
+          max.y = y
+          max.score = t
+        }
+      }
+    }
+    data.frame(max.x, max.y)
+	}
+	names(r3) <- c(coord_x, coord_y)
+	r3
+}
+toc()
+```
+
+## Validation
+```{r validation, eval=FALSE}
+sqrt(mean((y.p-y.test)^2, na.rm=T))  
+
+```
+
+```{r submit result, eval=FALSE, include=FALSE}
+
+predictions        <- data.frame(ImageId = 1:nrow(TARGET.TEST), y.test)
+submission         <- melt(predictions, id.vars="ImageId", variable.name="FeatureName", value.name="Location")
+example.submission <- read.csv('dataset/IdLookupTable.csv')
+sub.col.names      <- names(example.submission)
+example.submission$Location <- NULL
+
+submission <- merge(example.submission, submission, all.x=T, sort=F)
+submission <- submission[, sub.col.names]
+submission$ImageId <- NULL
+submission$FeatureName <- NULL
+
+write.csv(submission, file= paste("result/" , format(Sys.time(), "%Y%m%d_%H%M"), "_mean_patch_20c_p15_s2_he.csv", sep = ''), quote=F, row.names=F)
 ```
